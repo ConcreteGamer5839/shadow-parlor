@@ -88,6 +88,7 @@ export class ParlorSystem extends createSystem({}) {
   private anchorX = 0;
   private anchorY = 0;
   private anchorS = 1;
+  private anchorA = 0;
 
   // --- hands
   private joints = [new Float32Array(JOINT_COUNT * 3), new Float32Array(JOINT_COUNT * 3)];
@@ -310,6 +311,7 @@ export class ParlorSystem extends createSystem({}) {
     this.anchorX = this.target.cxCell;
     this.anchorY = this.target.cyCell;
     this.anchorS = 1;
+    this.anchorA = 0;
     this.hintOn = p.id === TUTORIAL.id || this.hintOn;
     this.layoutGhost(p);
     this.drawTitle();
@@ -510,7 +512,10 @@ export class ParlorSystem extends createSystem({}) {
 
     // Raster the live shadow
     this.live.clear();
-    for (let h = 0; h < 2; h++) if (this.tracked[h]) this.live.addHand(this.joints[h], this.radii[h]);
+    // Use the same authored finger widths as the targets. The headset's own joint
+    // radii are larger and made the palm balloon ("boxing gloves"), so the live
+    // shadow could never line up with the thinner target.
+    for (let h = 0; h < 2; h++) if (this.tracked[h]) this.live.addHand(this.joints[h], null);
     this.live.finish();
 
     const p = this.run[this.index];
@@ -546,6 +551,7 @@ export class ParlorSystem extends createSystem({}) {
       this.anchorX += (this.live.cxCell - this.anchorX) * k;
       this.anchorY += (this.live.cyCell - this.anchorY) * k;
       this.anchorS += (this.match.scale - this.anchorS) * k;
+      this.anchorA += ((this.match.angle ?? 0) - this.anchorA) * k;
     }
 
     this.ghost.visible = this.hintOn && this.phase === 'play';
@@ -578,7 +584,7 @@ export class ParlorSystem extends createSystem({}) {
         const i = y * nx + x;
         let r = this.paper[i * 3] * flicker, g = this.paper[i * 3 + 1] * flicker, b = this.paper[i * 3 + 2] * flicker;
         if (showTarget) {
-          const t = sampleTargetAt(x, y, this.target, this.anchorS, this.anchorX, this.anchorY);
+          const t = sampleTargetAt(x, y, this.target, this.anchorS, this.anchorX, this.anchorY, this.anchorA);
           if (t > 0) {
             // amber card outline; turns sea-green as the hold fills / when caught
             const a = 0.35 * t;

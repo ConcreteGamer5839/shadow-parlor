@@ -146,7 +146,17 @@ export interface MatchResult {
   iou: number;
   /** player-to-target scale factor used (1 = same size) */
   scale: number;
+  /** in-plane rotation (radians) that gave the best overlap */
+  angle?: number;
 }
+
+/**
+ * Real wrists never sit at exactly the authored angle, so the match searches a
+ * small range of in-plane rotations and keeps the best one. +/-24 deg in 6 deg
+ * steps: 9 passes over a 128x96 grid, well under 1 ms.
+ */
+const ANGLES: number[] = [];
+for (let d = -24; d <= 24; d += 6) ANGLES.push((d * Math.PI) / 180);
 
 /**
  * Compare player silhouette with the target. The target is re-centred on the
@@ -163,19 +173,32 @@ export function matchSilhouettes(player: Silhouette, target: Silhouette, out: Ma
   const { nx, ny } = player.stage;
   let s = Math.sqrt(player.area / target.area);
   s = Math.min(1.35, Math.max(0.75, s));
-  let inter = 0, uni = 0;
-  for (let y = 0; y < ny; y++) {
-    for (let x = 0; x < nx; x++) {
-      const p = player.mask[y * nx + x] >= 0.5;
-      const tx = Math.round((x - player.cxCell) / s + target.cxCell);
-      const ty = Math.round((y - player.cyCell) / s + target.cyCell);
-      const t = tx >= 0 && tx < nx && ty >= 0 && ty < ny && target.mask[ty * nx + tx] >= 0.5;
-      if (p && t) inter++;
-      if (p || t) uni++;
+  let bestIou = 0;
+  let bestAngle = 0;
+  for (const a of ANGLES) {
+    const ca = Math.cos(a) / s, sa = Math.sin(a) / s;
+    let inter = 0, uni = 0;
+    for (let y = 0; y < ny; y++) {
+      const ry = y - player.cyCell;
+      for (let x = 0; x < nx; x++) {
+        const p = player.mask[y * nx + x] >= 0.5;
+        const rx = x - player.cxCell;
+        const tx = Math.round(ca * rx - sa * ry + target.cxCell);
+        const ty = Math.round(sa * rx + ca * ry + target.cyCell);
+        const t = tx >= 0 && tx < nx && ty >= 0 && ty < ny && target.mask[ty * nx + tx] >= 0.5;
+        if (p && t) inter++;
+        if (p || t) uni++;
+      }
+    }
+    const iou = uni ? inter / uni : 0;
+    if (iou > bestIou) {
+      bestIou = iou;
+      bestAngle = a;
     }
   }
-  out.iou = uni ? inter / uni : 0;
+  out.iou = bestIou;
   out.scale = s;
+  out.angle = bestAngle;
   return out;
 }
 
@@ -187,10 +210,13 @@ export function sampleTargetAt(
   s: number,
   anchorX: number,
   anchorY: number,
+  angle = 0,
 ): number {
   const { nx, ny } = target.stage;
-  const tx = Math.round((x - anchorX) / s + target.cxCell);
-  const ty = Math.round((y - anchorY) / s + target.cyCell);
+  const ca = Math.cos(angle) / s, sa = Math.sin(angle) / s;
+  const rx = x - anchorX, ry = y - anchorY;
+  const tx = Math.round(ca * rx - sa * ry + target.cxCell);
+  const ty = Math.round(sa * rx + ca * ry + target.cyCell);
   if (tx < 0 || tx >= nx || ty < 0 || ty >= ny) return 0;
   return target.mask[ty * nx + tx];
 }
